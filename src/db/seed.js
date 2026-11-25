@@ -1,6 +1,6 @@
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
-const { query, pool } = require('../config/db');
+const { query, end } = require('../config/db');
 
 async function upsertUser({ username, password, fullName, role }) {
   const { rows } = await query('SELECT id FROM users WHERE username = $1', [username]);
@@ -47,7 +47,7 @@ async function main() {
   await upsertProduct({ name: 'Cooking Oil 1L', barcode: '4800016646789', category_id: household, unit: 'bottle', cost_price: 60, selling_price: 80, stock_quantity: 15, reorder_level: 5 });
 
   console.log('Seed complete.');
-  await pool.end();
+  await end();
 }
 
 main().catch((err) => {

@@ -23,7 +23,7 @@ A point-of-sale system for a small sari-sari store, with separate **Admin** and 
 
 - **Backend:** Node.js, Express
 - **Views:** EJS (server-rendered, no build step) + vanilla JS + [Chart.js](https://www.chartjs.org/) (vendored locally in `public/js/vendor/`)
-- **Database:** PostgreSQL via [`pg`](https://node-postgres.com/) — works with Vercel Postgres or any standard Postgres instance
+- **Database:** PostgreSQL via [`pg`](https://node-postgres.com/) — works with Neon (via Vercel Storage), Supabase, or any standard Postgres instance
 - **Sessions:** [`cookie-session`](https://github.com/expressjs/cookie-session) — the session payload is stored directly in a signed cookie, so there's no server-side session store to manage (required for serverless deployment)
 - **Deployment target:** [Vercel](https://vercel.com) (serverless functions)
 
@@ -47,7 +47,7 @@ vercel.json               # Vercel routing + function config
 
 - Node.js 22.5+ (matches the `engines` field in `package.json`)
 - A PostgreSQL database — any of:
-  - A [Vercel Postgres](https://vercel.com/docs/storage/vercel-postgres) database (same one you'll use in production)
+  - The same Neon database you connect in Vercel (via `vercel env pull .env`)
   - A local Postgres instance (Postgres.app, Homebrew, Docker, etc.)
   - Any other hosted Postgres (Neon, Supabase, RDS, ...)
 
@@ -70,11 +70,11 @@ vercel.json               # Vercel routing + function config
    | Variable | Required | Description |
    |---|---|---|
    | `PORT` | no | Local dev server port (default `3000`) |
-   | `SESSION_SECRET` | yes | Any long random string — signs the session cookie |
-   | `POSTGRES_URL` | yes | Postgres connection string |
+   | `SESSION_SECRET` | recommended | Any long random string — signs the session cookie |
+   | `POSTGRES_URL` | yes | Postgres connection string (`DATABASE_URL` also works) |
    | `ADMIN_SIGNUP_CODE` | no | Secret code required to self-register as Admin via `/register`. Leave blank to disable admin self-registration (Cashier registration still works; admins are then created from the Admin ▸ Users page) |
 
-   To point `POSTGRES_URL` at a Vercel Postgres database before it's deployed, create the database in the Vercel dashboard first (see [Deployment](#deployment-to-vercel) below), then run:
+   To point `POSTGRES_URL` at your Vercel-connected database before it's deployed, create the database in the Vercel dashboard first (see [Deployment](#deployment-to-vercel) below), then run:
 
    ```bash
    vercel env pull .env
@@ -113,38 +113,35 @@ vercel.json               # Vercel routing + function config
 
 1. **Push the code to GitHub** (or another Git provider Vercel supports).
 
-2. **Create a Vercel Postgres database**
-   In the Vercel dashboard: your project ▸ **Storage** ▸ **Create Database** ▸ Postgres. This automatically injects `POSTGRES_URL` (and related variables) into your project's environment.
+2. **Import the project in Vercel**
+   Vercel dashboard ▸ **Add New** ▸ **Project** ▸ select the GitHub repo ▸ Deploy. No build settings are needed — `vercel.json` routes all traffic to the Express app in `api/index.js`, and `public/` is served as static files.
 
-   > Already have a project imported? Add the database first, then redeploy so the function picks up the new env vars.
+3. **Connect a Postgres database**
+   In your project: **Storage** ▸ **Create Database** ▸ choose **Neon** (Serverless Postgres) ▸ connect it to the project for all environments. This injects `DATABASE_URL` / `POSTGRES_URL` automatically. Any other Postgres (Supabase, RDS, ...) also works — just add its connection string as `POSTGRES_URL` under **Settings ▸ Environment Variables**.
 
-3. **Import the project in Vercel**
-   Vercel dashboard ▸ **Add New** ▸ **Project** ▸ select the GitHub repo ▸ Deploy. No special build settings are needed — `vercel.json` already routes all traffic to the Express app in `api/index.js`, and `public/` is served as static files automatically.
+   Until a database is connected, the app shows a "Database Not Configured" page instead of crashing.
 
-4. **Set the remaining environment variables**
-   In your project's **Settings ▸ Environment Variables**, add:
-   - `SESSION_SECRET` — a long random string (e.g. `openssl rand -hex 32`)
-   - `ADMIN_SIGNUP_CODE` *(optional)* — a secret code for admin self-registration; share it out-of-band with whoever should be able to register as an admin, never in the app itself
+4. **Set environment variables** *(Settings ▸ Environment Variables)*
+   - `SESSION_SECRET` *(recommended)* — a long random string (e.g. `openssl rand -hex 32`). If omitted, a key is derived from the database URL so sessions are still secure, but changing the database would then log everyone out.
+   - `ADMIN_SIGNUP_CODE` *(optional)* — lets additional people self-register as Admin.
 
-   Redeploy after adding/changing env vars so they take effect.
+5. **Redeploy** (Deployments ▸ ⋯ ▸ Redeploy) so the function picks up the new environment variables.
 
-5. **Seed the production database (first deploy only)**
-   Pull the production env vars locally and run the seed script once against the real database:
+6. **Create your admin account**
+   Open your `*.vercel.app` URL and go to `/register`. Tables are created automatically on first request, and while **no admin exists yet, the first account registered becomes the Admin** — no setup code needed. Do this right after deploying. After that, registration defaults to Cashier, and more admins can be added from **Admin ▸ Users**.
+
+   *(Optional)* To load the sample products and default accounts instead, pull the env vars and run the seed script once against the production database:
 
    ```bash
    vercel env pull .env.production.local
-   # ensure POSTGRES_URL in that file is loaded, then:
    node -r dotenv/config src/db/seed.js dotenv_config_path=.env.production.local
    ```
-
-   Alternatively, skip seeding and just use `/register` to create your first Admin account (requires `ADMIN_SIGNUP_CODE` to be set).
-
-6. **Visit your deployment** — Vercel gives you a `*.vercel.app` URL (or your custom domain). Log in or register, and you're running.
 
 ### Notes on the serverless setup
 
 - **Sessions** are stored entirely in a signed cookie (`cookie-session`), not server memory — this is required because serverless functions don't share memory between invocations.
-- **Views** (`src/views/**`) are explicitly bundled into the function via `vercel.json`'s `includeFiles`, since Vercel's build-time file tracer can't detect EJS's dynamic `fs.readFileSync` calls on its own.
+- **Views** (`src/views/**`) and `src/db/schema.sql` are explicitly bundled into the function via `vercel.json`'s `includeFiles`, since Vercel's build-time file tracer can't detect EJS's dynamic `fs.readFileSync` calls on its own.
+- **Database connections** use a small per-instance pool, and SSL parameters in the connection string are normalized so both Neon and Supabase-style poolers connect without certificate errors.
 - **Database schema** is created automatically (idempotent `CREATE TABLE IF NOT EXISTS`) the first time the function queries the database after a cold start — no separate migration step needed for schema changes defined in `src/db/schema.sql`.
 
 ## Scripts reference

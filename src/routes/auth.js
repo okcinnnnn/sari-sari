@@ -6,6 +6,14 @@ const { setFlash } = require('../middleware/flash');
 
 const router = express.Router();
 
+// On a brand-new deployment the database has no accounts. Until an admin
+// exists, /register lets the first person set up the admin account without
+// needing ADMIN_SIGNUP_CODE, so a fresh Vercel deploy is usable immediately.
+async function needsFirstAdmin() {
+  const { rows } = await query("SELECT 1 FROM users WHERE role = 'admin' AND active = TRUE LIMIT 1");
+  return rows.length === 0;
+}
+
 router.get('/login', redirectIfAuthed, (req, res) => {
   res.render('login', { title: 'Login' });
 });
@@ -34,11 +42,16 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-router.get('/register', redirectIfAuthed, (req, res) => {
-  res.render('register', {
-    title: 'Register',
-    adminSignupEnabled: Boolean(process.env.ADMIN_SIGNUP_CODE),
-  });
+router.get('/register', redirectIfAuthed, async (req, res, next) => {
+  try {
+    res.render('register', {
+      title: 'Register',
+      adminSignupEnabled: Boolean(process.env.ADMIN_SIGNUP_CODE),
+      firstAdminSetup: await needsFirstAdmin(),
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/register', async (req, res, next) => {
@@ -58,7 +71,9 @@ router.post('/register', async (req, res, next) => {
     }
 
     let finalRole = 'sales_rep';
-    if (role === 'admin') {
+    if (await needsFirstAdmin()) {
+      finalRole = 'admin';
+    } else if (role === 'admin') {
       const signupCode = process.env.ADMIN_SIGNUP_CODE;
       if (!signupCode || admin_code !== signupCode) {
         setFlash(req, 'error', 'Incorrect (or disabled) admin setup code.');

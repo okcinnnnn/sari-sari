@@ -17,6 +17,11 @@
     <label>Confirm Password
       <input type="password" name="confirm_password" required minlength="6" />
     </label>
+    <% if (firstAdminSetup) { %>
+      <div class="alert alert-success">
+        First-time setup: no admin account exists yet, so this account will be created as the <strong>Admin</strong>.
+      </div>
+    <% } else { %>
     <label>Account Type
       <select name="role" id="roleSelect">
         <option value="sales_rep">Sales Representative (Cashier)</option>
@@ -31,6 +36,7 @@
         Admin self-registration is currently disabled. New admins must be created from the Admin &gt; Users page.
       </p>
     <% } %>
+    <% } %>
 
     <button type="submit" class="btn btn-primary btn-block">Create Account</button>
     <p class="muted" style="text-align: center; margin: 0;">
@@ -38,6 +44,7 @@
     </p>
   </form>
 </div>
+<% if (!firstAdminSetup) { %>
 <script>
   const roleSelect = document.getElementById('roleSelect');
   const adminCodeField = document.getElementById('adminCodeField');
@@ -50,4 +57,5 @@
   roleSelect.addEventListener('change', syncAdminCodeField);
   syncAdminCodeField();
 </script>
+<% } %>
 <%- include('partials/foot') %>
